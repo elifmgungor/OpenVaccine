@@ -47,7 +47,7 @@ from src import config as C
 from src.evaluation.metrics import mcrmse
 from src.evaluation.submission import to_submission
 from src.preprocessing.data import load_processed
-from src.transfer.data import load_inputs, iterate_batches
+from src.transfer.data import RNAFM_DIM, RNAFM_DIR, load_inputs, iterate_batches
 from src.transfer.model import RNAEncoder, MLMModel, RegModel, MASK_IDS
 from src.transfer.mlm import apply_mlm_mask, mlm_loss
 from src.transfer.finetune import mcrmse_loss, predict
@@ -175,5 +175,21 @@ filled = sub.dropna()
 assert list(sub.columns) == ["id_seqpos", *C.TARGETS]
 assert len(filled) == 8 * 107 + 8 * 130, f"{len(filled)} lignes remplies"
 ok(f"{len(filled)} lignes remplies sur {len(sub)} (normal : seulement 16 molécules prédites ici)")
+
+# ------------------------------------------------------------------ 12
+step("RNA-FM (optionnel)")
+if not (RNAFM_DIR / "train.npy").exists():
+    print(f"    ignoré : {RNAFM_DIR / 'train.npy'} absent (lancer extract_rnafm.py pour tester)")
+else:
+    XR = {k: v[:8] for k, v in load_inputs("train", rnafm=True).items()}
+    assert XR["rnafm"].shape == (8, 107, RNAFM_DIM), XR["rnafm"].shape
+    assert np.isfinite(XR["rnafm"].astype("float32")).all(), "embeddings RNA-FM non finis"
+    enc_r = RNAEncoder(d=64, h=4, n_layers=2, ff=128, rnafm_dim=RNAFM_DIM)
+    missing, unexpected = enc_r.load_state_dict(small.enc.state_dict(), strict=False)
+    assert not unexpected and all(m.startswith("rnafm_proj.") for m in missing), (missing, unexpected)
+    reg_r = RegModel(enc_r).to(DEVICE)
+    PR = predict(reg_r, XR)
+    assert PR.shape == (8, 107, 5) and np.isfinite(PR).all()
+    ok(f"embeddings {XR['rnafm'].shape} alignés ; encodeur MLM rechargé + projection RNA-FM ; prédictions {PR.shape}")
 
 print(f"\nTOUT EST OK ({time.time() - T0:.0f} s). Étape suivante : runs courts avec les vrais scripts.")

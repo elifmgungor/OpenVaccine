@@ -5,15 +5,37 @@ qu'une seule longueur : un « groupe » = un dict de tableaux de même longueur 
 """
 import numpy as np
 
+from src import config as C
 from src.preprocessing.data import inputs_of, load_processed, select
 
 TL_KEYS = ["tokens", "feats", "bpps", "pairs"]   # onehot inutile : couche Embedding
 PROCESSED = ("train", "test_107", "test_130")
 
+# Embeddings RNA-FM (extract_rnafm.py), rangés dans outputs/ donc sur le Drive avec Colab
+RNAFM_DIR = C.OUTPUT_DIR / "rnafm"
+RNAFM_DIM = 640
 
-def load_inputs(name):
-    """Entrées du modèle pour 'train', 'test_107' ou 'test_130'."""
-    return select(inputs_of(load_processed(name)), slice(None), TL_KEYS)
+
+def load_rnafm(name, ids):
+    """Embeddings RNA-FM (N, L, 640) en float16, alignés sur les molécules de `ids`."""
+    path, ids_path = RNAFM_DIR / f"{name}.npy", RNAFM_DIR / f"{name}_ids.npy"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} absent : lancer d'abord `python extract_rnafm.py`")
+    saved = np.load(ids_path, allow_pickle=False).astype(str)
+    if not np.array_equal(saved, np.asarray(ids).astype(str)):
+        raise ValueError(f"{name} : l'ordre des molécules diffère de data/processed, relancer "
+                         "`python extract_rnafm.py --force`")
+    return np.load(path)
+
+
+def load_inputs(name, rnafm=False):
+    """Entrées du modèle pour 'train', 'test_107' ou 'test_130'.
+    rnafm=True ajoute la clé 'rnafm' (N, L, 640) : embeddings du modèle de fondation gelé."""
+    proc = load_processed(name)
+    X = select(inputs_of(proc), slice(None), TL_KEYS)
+    if rnafm:
+        X["rnafm"] = load_rnafm(name, proc["ids"])
+    return X
 
 
 def sn_weight(signal_to_noise):

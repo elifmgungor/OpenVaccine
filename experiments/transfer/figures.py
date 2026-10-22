@@ -31,8 +31,10 @@ LOOP_NAMES = {"S": "Tige (S)", "M": "Multi-boucle (M)", "I": "Boucle interne (I)
               "B": "Renflement (B)", "H": "Épingle (H)", "E": "Extrémité libre (E)",
               "X": "Boucle externe (X)"}
 RUN_LABELS = {"tl": "TL (pré-entraîné)", "tl_scratch": "Sans pré-entraînement (tl_scratch)",
-              "mean": "Référence mean"}
-RUN_COLORS = {"tl": "#2a6fdb", "tl_scratch": "#9aa0a6", "mean": "#d4d4d4"}
+              "mean": "Référence mean", "tl_rnafm": "RNA-FM gelé (tl_rnafm)",
+              "tl_mlm_rnafm": "MLM + RNA-FM (tl_mlm_rnafm)"}
+RUN_COLORS = {"tl": "#2a6fdb", "tl_scratch": "#9aa0a6", "mean": "#d4d4d4",
+              "tl_rnafm": "#e07b39", "tl_mlm_rnafm": "#3a9d5d"}
 OTHER_COLORS = ["#e07b39", "#3a9d5d", "#8e5cc4", "#c94f6d"]
 BLUE, GREY = "#2a6fdb", "#7a7f85"
 SCORED = [C.TARGETS[i] for i in C.SCORED_IDX]

@@ -1,5 +1,18 @@
 """Fine-tuning du Transformer MLM sur les folds communs du projet.
 
+Identique à train.py : données prétraitées, folds (--folds), molécules d'entraînement
+(SN_filter = 1 sauf --all-samples), validation sur SN_filter = 1, loss MCRMSE sur les
+5 cibles, EarlyStopping(patience, restore_best_weights) sur la val_loss,
+ReduceLROnPlateau(0.5, patience // 2), Adam, et sorties dans outputs/<name>/ :
+oof.npy (NaN hors folds entraînés), submission.csv, scores.json, history_fold*.csv.
+
+Spécifique au transfer learning : chargement de l'encodeur pré-entraîné, gel de
+l'encodeur pendant --freeze-epochs, learning rate séparé pour l'encodeur (--lr-enc).
+
+Option --rnafm : ajoute en entrée les embeddings du modèle de fondation RNA-FM gelé
+(extract_rnafm.py). Avec --ckpt none, c'est le transfert depuis RNA-FM seul (tl_rnafm).
+La projection RNA-FM est une couche neuve : elle n'est jamais gelée et apprend au
+learning rate de la tête.
 Loss sur cinq cibles ; checkpoint et arrêt anticipé sélectionnés sur la
 validation à cinq cibles. Le score officiel à trois cibles est aussi enregistré.
 L'encodeur préentraîné peut être gelé au début et utilise un learning rate séparé.
@@ -16,7 +29,7 @@ from src import config as C
 from src.evaluation.metrics import mcrmse
 from src.evaluation.submission import to_submission
 from src.preprocessing.data import load_processed
-from .data import load_inputs, sn_weight, iterate_batches
+from .data import RNAFM_DIM, load_inputs, sn_weight, iterate_batches
 from .mlm import seed_all
 from .model import RNAEncoder, RegModel
 
@@ -52,7 +65,12 @@ def set_trainable(module, flag):
 
 def run(args):
     pretrained = args.ckpt.lower() != "none"
-    name = args.name or ("tl" if pretrained else "tl_scratch")
+    use_rnafm = getattr(args, "rnafm", False)
+    if use_rnafm:
+        default = "tl_mlm_rnafm" if pretrained else "tl_rnafm"
+    else:
+        default = "tl" if pretrained else "tl_scratch"
+    name = args.name or default
     out_dir = C.OUTPUT_DIR / name
     out_dir.mkdir(parents=True, exist_ok=True)
     seed_all()
@@ -60,12 +78,12 @@ def run(args):
 
     # données prétraitées par scripts/preprocess.py (comme experiments/from_scratch/train.py)
     train = load_processed("train")
-    X, Y = load_inputs("train"), train["targets"]
+    X, Y = load_inputs("train", rnafm=use_rnafm), train["targets"]
     fold = train[f"fold_{args.folds}"]
     clean = train["sn_filter"] == 1
     W = sn_weight(train["signal_to_noise"]) if args.sn_weight else None
     test_groups = [load_processed(f"test_{L}") for L in (107, 130)]
-    test_X = [load_inputs(f"test_{L}") for L in (107, 130)]
+    test_X = [load_inputs(f"test_{L}", rnafm=use_rnafm) for L in (107, 130)]
 
     folds = [args.only_fold] if args.only_fold is not None else range(C.N_FOLDS)
     oof = np.full_like(Y, np.nan)
@@ -85,19 +103,32 @@ def run(args):
             tr_data["w"] = W[tr_idx]
         va_data = take(X, va)
 
-        enc = RNAEncoder()
+        enc = RNAEncoder(rnafm_dim=RNAFM_DIM if use_rnafm else 0)
         if pretrained:
-            enc.load_state_dict(torch.load(args.ckpt, map_location="cpu"))
+            missing, unexpected = enc.load_state_dict(torch.load(args.ckpt, map_location="cpu"), strict=False)
+            if unexpected or any(not m.startswith("rnafm_proj.") for m in missing):
+                raise RuntimeError(f"checkpoint incompatible : manquants {missing}, inattendus {unexpected}")
         model = RegModel(enc).to(DEVICE)
+<<<<<<< HEAD
+        lr_enc = args.lr_enc if pretrained else args.lr   # sans pré-entraînement : protocole train.py
+        new = list(model.enc.rnafm_proj.parameters()) if model.enc.rnafm_proj is not None else []
+        new_ids = {id(p) for p in new}
+        enc_params = [p for p in model.enc.parameters() if id(p) not in new_ids]
+        opt = torch.optim.Adam([{"params": enc_params, "lr": lr_enc},
+                                {"params": list(model.head.parameters()) + new, "lr": args.lr}])
+=======
         lr_enc = args.lr_enc if pretrained else args.lr   # sans pré-entraînement : protocole experiments/from_scratch/train.py
         opt = torch.optim.Adam([{"params": model.enc.parameters(), "lr": lr_enc},
                                 {"params": model.head.parameters(), "lr": args.lr}])
+>>>>>>> upstream/main
         plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(   # = keras ReduceLROnPlateau
             opt, factor=0.5, patience=max(1, args.patience // 2), threshold=1e-4, threshold_mode="abs")
         best, best_state, wait, history = float("inf"), None, 0, []
 
         for ep in range(args.epochs):
             set_trainable(model.enc, not pretrained or ep >= args.freeze_epochs)
+            for p in new:                                     # projection RNA-FM : jamais gelée
+                p.requires_grad = True
             model.train(); tl, nb = 0.0, 0
             for b in iterate_batches([tr_data], args.batch_size, shuffle=True, rng=rng, device=DEVICE):
                 loss = mcrmse_loss(model(b), b["y"], b.get("w"))

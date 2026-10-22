@@ -6,6 +6,11 @@ des modèles Keras utilisés par experiments/from_scratch/train.py (MODELS), ce 
 Mêmes entrées que les autres modèles : tokens (vocabulaire global à offsets),
 feats, bpps, pairs. Biais d'attention 2D (BPP + adjacence) ; tête MLM pour le
 pré-entraînement, tête de régression pour le fine-tuning.
+
+Option RNA-FM (rnafm_dim > 0) : les embeddings d'un modèle de fondation gelé
+(640 dimensions par nucléotide) sont projetés en d dimensions et ajoutés à
+l'embedding, comme les feats. Sans cette option, le modèle est inchangé et les
+anciens checkpoints restent compatibles.
 """
 import torch
 import torch.nn as nn
@@ -52,9 +57,11 @@ class GraphBiasedAttentionLayer(nn.Module):
 
 
 class RNAEncoder(nn.Module):
-    def __init__(self, d=192, h=6, n_layers=4, ff=768, drop=0.1, max_len=256):
+    def __init__(self, d=192, h=6, n_layers=4, ff=768, drop=0.1, max_len=256, rnafm_dim=0):
         super().__init__()
         self.d = d
+        self.rnafm_proj = (nn.Sequential(nn.Dropout(drop), nn.Linear(rnafm_dim, d), nn.LayerNorm(d))
+                           if rnafm_dim else None)
         self.emb = nn.Embedding(C.VOCAB_SIZE + len(MASK_IDS), d)
         self.feat_proj = nn.Sequential(nn.Linear(len(FEATURE_NAMES), d), nn.LayerNorm(d))
         self.pos = nn.Embedding(max_len, d)
@@ -68,6 +75,10 @@ class RNAEncoder(nn.Module):
         adj = b["adj"] if "adj" in b else pairs_to_adj(b["pairs"].long())
         x = (self.emb(tok).sum(2) + self.feat_proj(b["feats"])
              + self.pos(torch.arange(L, device=tok.device))[None])
+        if self.rnafm_proj is not None:
+            if "rnafm" not in b:
+                raise KeyError("encodeur RNA-FM : la clé 'rnafm' manque dans le batch (load_inputs(..., rnafm=True))")
+            x = x + self.rnafm_proj(b["rnafm"].float())
         x = x + F.gelu(self.conv(x.transpose(1, 2))).transpose(1, 2)
         for layer in self.layers:
             x = layer(x, b["bpps"], adj)
