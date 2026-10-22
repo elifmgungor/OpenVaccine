@@ -1,7 +1,6 @@
 """Kaggle community AE + GNN + attention + CNN, adapted for Keras 3.
 
 Source: https://www.kaggle.com/code/mrkmakr/covid-ae-pretrain-gnn-attn-cnn
-Architecture ported from the uploaded notebook; not the complete winning ensemble.
 The runner controls pretraining data, folds, seeds and official scoring.
 """
 import numpy as np
