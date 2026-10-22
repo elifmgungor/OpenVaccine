@@ -1,4 +1,4 @@
-"""Modèle 4 (optionnel) : GAT, attention sur le graphe de l'ARN (cours GNN).
+"""Modèle 4 : GAT, attention sur le graphe de l'ARN (cours GNN).
 
     alpha_uv = softmax_u( LeakyReLU( a^T [W x_v || W x_u] ) )   pour u voisin de v
     x'_v     = elu( sum_u alpha_uv W x_u )                      (têtes concaténées)
